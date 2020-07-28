@@ -1,9 +1,33 @@
 #!/bin/bash
-isPresent=$(lsusb -D $(lsusb | awk '/ 03c3:/ { bus=$2; dev=$4; gsub(/[^0-9]/,"",dev); print "/dev/bus/usb/"bus"/"dev;}') | grep -c 'iProduct .*ASI[0-9]')
-if [ $isPresent -eq 0 ]; then
-        echo ZWO Camera not found.  Exiting. >&2
+
+CAMERA="RPiHQ"
+
+echo "Making sure allsky.sh is not already running..."
+ps -ef | grep allsky.sh | grep -v $$ | xargs "sudo kill -9" 2>/dev/null
+
+RPiHQIsPresent=$(vcgencmd get_camera)
+if [[ $CAMERA == "RPiHQ" && $RPiHQIsPresent == "*supported=1 detected=1*" ]]; then
+echo "RPiHQ Camera not found. Exiting." >&2
         sudo systemctl stop allsky
         exit 0
+fi
+
+ZWOIsPresent=$(lsusb -D $(lsusb | awk '/ 03c3:/ { bus=$2; dev=$4; gsub(/[^0-9]/,"",dev); print "/dev/bus/usb/"bus"/"dev;}') | grep -c 'iProduct .*ASI[0-9]')
+if [[ $CAMERA == "ZWO" &&  $ZWOIsPresent -eq 0 ]]; then
+        echo "ZWO Camera not found. Exiting." >&2
+        sudo systemctl stop allsky
+        exit 0
+fi
+
+echo "Ensuring you are running the latest software..."
+if [ `git pull | wc -c` != 20 ]; then
+	echo "Compiling software..."
+	make
+	if [ -f "/etc/raspap/camera_settings.json"] ; then
+		echo Copying camera settings file...
+		sudo cp /etc/raspap/camera_settings.json /etc/raspap/camera_settings.json.old
+		sudo cp camera_settings.json /etc/raspap
+	fi
 fi
 
 source /home/pi/allsky/config.sh
@@ -29,4 +53,8 @@ ARGUMENTS="$ARGUMENTS -daytime $DAYTIME"
 
 echo "$ARGUMENTS">>log.txt
 
-./capture $ARGUMENTS
+if [[ $CAMERA == "ZWO" ]]; then
+	./capture $ARGUMENTS
+elif [[ $CAMERA == "RPiHQ" ]]; then
+	./capture_RPiHQ $ARGUMENTS
+fi
